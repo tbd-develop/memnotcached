@@ -2,8 +2,7 @@
 
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
-using Microsoft.Extensions.CommandLineUtils;
+using server;
 
 int port = 11211;
 
@@ -21,61 +20,16 @@ var server = new TcpListener(IPAddress.Loopback, port);
 
 server.Start();
 
-int MaximumBytes = 256;
-Byte[] bytes = new Byte[MaximumBytes];
-StringBuilder buffer = new StringBuilder();
+var cache = new Cache();
 
-Dictionary<string, string> _cache = new Dictionary<string, string>();
+var taskPool = new List<Task>();
 
 do
 {
-    using var client = await server.AcceptTcpClientAsync();
+    var client = await server.AcceptTcpClientAsync();
 
-    var stream = client.GetStream();
+    var clientHandler = new NotCachedClient(cache, client);
 
-    var bytesRead = 0;
-
-    while ((bytesRead = stream.Read(bytes, 0, bytes.Length)) != 0)
-    {
-        buffer.Append(Encoding.ASCII.GetString(bytes, 0, bytesRead));
-
-        if (bytesRead < MaximumBytes)
-        {
-            var result = CommandParser.Parse(buffer.ToString());
-
-            if (result is not null)
-            {
-                switch (result.Value.command.Name)
-                {
-                    case "set":
-                    {
-                        _cache[result.Value.command.Key] = result.Value.data;
-
-                        if (!result.Value.command.Noreply)
-                        {
-                            stream.WriteToStream("STORED\r\n");
-                        }
-                    }
-                        break;
-                    case "get":
-                    {
-                        if (_cache.TryGetValue(result.Value.command.Key, out var value))
-                        {
-                            stream.WriteToStream(
-                                $"VALUE {result.Value.command.Key} {value.Length}\r\n");
-                            stream.WriteToStream($"{value}\r\n");
-                            stream.WriteToStream("END\r\n");
-                        }
-                        else
-                        {
-                            stream.WriteToStream("END\r\n");
-                        }
-                    }
-                        break;
-                }
-            }
-
-            buffer = new StringBuilder();
-        }
-    }
+    taskPool.Add(Task.Factory.StartNew(async () => await clientHandler.ListenForMessages(),
+        TaskCreationOptions.LongRunning));
 } while (true);
