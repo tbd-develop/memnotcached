@@ -20,49 +20,13 @@ public class NotCachedClient(Cache cache, TcpClient client)
         {
             buffer.Append(Encoding.ASCII.GetString(bytes, 0, bytesRead));
 
-            if (bytesRead < BufferSize)
-            {
-                var result = CommandParser.Parse(buffer.ToString());
+            if (bytesRead >= BufferSize) continue;
+            
+            var handler = CommandFactory.FetchHandler(buffer.ToString());
 
-                if (result is not null)
-                {
-                    switch (result.Value.command.Name)
-                    {
-                        case "set":
-                        {
-                            if (result.Value.data is not null)
-                            {
-                                cache.Add(result.Value.command.Key, result.Value.data);
+            handler?.Handle(stream, cache);
 
-                                if (!result.Value.command.Noreply)
-                                {
-                                    stream.WriteToStream("STORED\r\n");
-                                }
-                            }
-                        }
-                            break;
-                        case "get":
-                        {
-                            var value = cache.Get(result.Value.command.Key);
-
-                            if (value is not null)
-                            {
-                                stream.WriteToStream(
-                                    $"VALUE {result.Value.command.Key} {value.Length}\r\n");
-                                stream.WriteToStream($"{value}\r\n");
-                                stream.WriteToStream("END\r\n");
-                            }
-                            else
-                            {
-                                stream.WriteToStream("END\r\n");
-                            }
-                        }
-                            break;
-                    }
-                }
-
-                buffer = new StringBuilder();
-            }
+            buffer = new StringBuilder();
         }
     }
 }
